@@ -1,0 +1,25 @@
+diff --git a/configure.ac b/configure.ac
+index 75afcb7..f31c7d6 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1328,6 +1328,20 @@ fi
+ WINE_WARNING_WITH(gnutls,[test "x$ac_cv_lib_soname_gnutls" = "x"],
+                  [libgnutls ${notice_platform}development files not found, no schannel support.])
+ 
++
++dnl **** Check for libgcrypt ****
++if test "x$with_gcrypt" != "xno"
++then
++    WINE_PACKAGE_FLAGS(GCRYPT,[gcrypt],,,,
++        [AC_CHECK_HEADER(gcrypt.h,
++            [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <gcrypt.h>]], [[static typeof(gcry_check_version) *func; if (func) return 0;]])],
++                [WINE_CHECK_SONAME(gcrypt,gcry_check_version,,[GCRYPT_CFLAGS=""],[$GCRYPT_LIBS],[[libgcrypt\\(-deb0\\)\\{0,1\\}]])
++                ])],
++            [GCRYPT_CFLAGS=""])])
++fi
++WINE_WARNING_WITH(gcrypt,[test "x$ac_cv_lib_soname_gcrypt" = "x"],
++                 [libgcrypt ${notice_platform}development files not found, no full bcrypt support.])
++
+ dnl **** Check which curses lib to use ***
+ CURSES_LIBS=""
+ if test "$ac_cv_header_ncurses_h" = "yes"
