@@ -7,8 +7,10 @@ http://steamcommunity.com/app/379720/discussions/0/152391995402132325/
 
 ### Note
 
-Decrypt/Encrypt still needs proper padding implementation.
-It kinda works now, but can break.
+Decrypt/Encrypt uses standart PKCS #7 padding (when flag is set).
+I'm not sure if that's correct, but it works with DooM.
+
+Feel free to modify / send patches to wine / etc.
 
 ### How to build
 

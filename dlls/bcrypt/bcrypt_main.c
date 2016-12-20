@@ -739,26 +739,22 @@ static NTSTATUS key_encrypt( struct key *key, UCHAR *input, ULONG input_size, UC
     ULONG block_size = 16;
     ULONG blocks = input_size / block_size + 1;
 
+    ULONG delta = block_size*blocks - input_size;
+
     if (iv) {
         pgcry_cipher_setiv(key->cypher_handle, iv, iv_size);
     }
 
-/*
-    char* fname[80];
-    sprintf(fname,"%p.encode.dump",key);
-    FILE* fp;
-    fp = fopen(fname,"wb");
-    fwrite(input, input_size, 1, fp);
-    fclose(fp);
-*/
-
-    if (flags && input_size % 16)
+    if (flags)// && input_size % 16)
     {
         //pad input to block size
-//        FIXME("BlockSize: %d\n", block_size);
+
         padded_input = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
-        memset(padded_input,0,block_size*blocks);
+
+        //Windows BCryptEncode seems to write standart PKCS #7 padding
+        memset(padded_input,delta,block_size*blocks);
         memcpy(padded_input,input,input_size);
+
         if (( err = pgcry_cipher_encrypt(key->cypher_handle, output, output_size, padded_input, block_size*blocks))>0)
         {
             FIXME("Failed %d  %s/%s\n", err, pgcry_strsource (err),
@@ -791,10 +787,10 @@ static NTSTATUS key_decrypt( struct key *key, UCHAR *input, ULONG input_size, UC
         pgcry_cipher_setiv(key->cypher_handle, iv, iv_size);
     }
 
-    if (flags && input_size % 16)
+    if (flags)// && input_size % 16)
     {
+
         //pad input to block size
-//        FIXME("BlockSize: %d\n", block_size);
         padded_input = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
         memset(padded_input,0,block_size*blocks);
         memcpy(padded_input,input,input_size);
@@ -802,7 +798,6 @@ static NTSTATUS key_decrypt( struct key *key, UCHAR *input, ULONG input_size, UC
         // create big enought output
         padded_output = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
         memset(padded_output,0,block_size*blocks);
-//        memset(output,0,output_size);
 
         if (( err = pgcry_cipher_decrypt(key->cypher_handle, padded_output, block_size*blocks, padded_input, block_size*blocks))>0)
         {
@@ -813,28 +808,17 @@ static NTSTATUS key_decrypt( struct key *key, UCHAR *input, ULONG input_size, UC
 
         //truncate
         output_size = block_size*blocks;
-//        if (output_size > 16)
-//          output_size-=16; // one block smaller
 
-        while (padded_output[output_size-1]==0)
+
+        if (padded_output[output_size-1]!=0)
         {
-            output_size--;
+            output_size-=padded_output[output_size-1];
         }
 
         *result = output_size;
 
-//        if (output_size<0) ERR("ACHTUNG!!!!\n");
-
         memcpy(output, padded_output, output_size);
 
-/*
-        char* fname[80];
-        sprintf(fname,"%p.decode.dump",key);
-        FILE* fp;
-        fp = fopen(fname,"wb");
-        fwrite(padded_output, output_size, 1, fp);
-        fclose(fp);
-*/
         HeapFree( GetProcessHeap(), 0, padded_input );
         HeapFree( GetProcessHeap(), 0, padded_output );
     }
