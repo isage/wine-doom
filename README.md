@@ -4,6 +4,12 @@
 irc: freenode.net #doom-wine
 http://steamcommunity.com/app/379720/discussions/0/152391995402132325/
 
+
+### Note
+
+Decrypt/Encrypt still needs proper padding implementation.
+It kinda works now, but can break.
+
 ### How to build
 
 
