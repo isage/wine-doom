@@ -71,6 +71,9 @@ MAKE_FUNCPTR(gcry_cipher_encrypt);
 MAKE_FUNCPTR(gcry_cipher_decrypt);
 MAKE_FUNCPTR(gcry_cipher_setiv);
 MAKE_FUNCPTR(gcry_cipher_setkey);
+
+MAKE_FUNCPTR(gcry_strerror);
+MAKE_FUNCPTR(gcry_strsource);
 #undef MAKE_FUNCPTR
 
 static void gcrypt_log( void* opaque, int level, const char *msg, va_list arg_ptr)
@@ -115,6 +118,9 @@ static BOOL gcrypt_initialize(void)
     LOAD_FUNCPTR(gcry_cipher_decrypt);
     LOAD_FUNCPTR(gcry_cipher_setiv);
     LOAD_FUNCPTR(gcry_cipher_setkey);
+
+    LOAD_FUNCPTR(gcry_strerror);
+    LOAD_FUNCPTR(gcry_strsource);
 #undef LOAD_FUNCPTR
 
     if (!pgcry_check_version (GCRYPT_VERSION))
@@ -616,7 +622,7 @@ static NTSTATUS hmac_init( struct hash *hash, UCHAR *key, ULONG key_size )
         ERR( "unhandled id %u\n", hash->alg_id );
         break;
     }
-    pgcry_md_debug (hash->hash_handle, "dumphmac");
+//    pgcry_md_debug (hash->hash_handle, "dumphmac");
     pgcry_md_setkey(hash->hash_handle, key, key_size);
     return STATUS_SUCCESS;
 }
@@ -636,34 +642,25 @@ static NTSTATUS hmac_update( struct hash *hash, UCHAR *input, ULONG size )
 
 static NTSTATUS hash_finish( struct hash *hash, UCHAR *output, ULONG size )
 {
+    UCHAR* buf;
     pgcry_md_ctl(hash->hash_handle, GCRYCTL_FINALIZE, NULL, 0);
-    UCHAR* buf = pgcry_md_read(hash->hash_handle, 0);
+    buf = pgcry_md_read(hash->hash_handle, 0);
     memcpy(output, buf, size);
     pgcry_md_close(hash->hash_handle);
     hash->hash_handle = NULL;
-
-    int i;
-    for (i = 0; i < size; i++) {
-        TRACE("%x", output[i]);
-    }
-    TRACE("\n");
-
 
     return STATUS_SUCCESS;
 }
 
 static NTSTATUS hmac_finish( struct hash *hash, UCHAR *output, ULONG size )
 {
+    UCHAR* buf;
     pgcry_md_ctl(hash->hash_handle, GCRYCTL_FINALIZE, NULL, 0);
-    UCHAR* buf = pgcry_md_read(hash->hash_handle, 0);
+    buf= pgcry_md_read(hash->hash_handle, 0);
     memcpy(output, buf, size);
     pgcry_md_close(hash->hash_handle);
     hash->hash_handle = NULL;
-    int i;
-    for (i = 0; i < size; i++) {
-        TRACE("%x", output[i]);
-    }
-    TRACE("\n");
+
     return STATUS_SUCCESS;
 }
 
@@ -681,10 +678,9 @@ static NTSTATUS hash_duplicate( struct hash *hash,  struct hash **hashout )
     hashout2->alg_id    = hash->alg_id;
     hashout2->hmac      = hash->hmac;
 
-    gcry_error_t err = pgcry_md_copy(&hashout2->hash_handle, hash->hash_handle);
-//    pgcry_md_debug (hashout->hash_handle, "dumphmac");
+    pgcry_md_copy(&hashout2->hash_handle, hash->hash_handle);
     *hashout = hashout2;
-    TRACE("DUP %d %p %p\n", err, hashout, hashout2->hash_handle);
+
     return STATUS_SUCCESS;
 }
 
@@ -725,6 +721,7 @@ static NTSTATUS key_init( struct key *key, UCHAR *secret, ULONG size )
         ERR("gcrypt failed to init cipher");
         return STATUS_INTERNAL_ERROR;
     }
+
     pgcry_cipher_setkey(key->cypher_handle, secret, size);
     return STATUS_SUCCESS;
 }
@@ -735,23 +732,121 @@ static NTSTATUS key_finish( struct key *key )
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS key_encrypt( struct key *key, UCHAR *input, ULONG input_size, UCHAR *iv, ULONG iv_size, UCHAR *output, ULONG output_size )
+static NTSTATUS key_encrypt( struct key *key, UCHAR *input, ULONG input_size, UCHAR *iv, ULONG iv_size, UCHAR *output, ULONG output_size, ULONG flags )
 {
+    gcry_error_t err;
+    UCHAR* padded_input;
+    ULONG block_size = 16;
+    ULONG blocks = input_size / block_size + 1;
+
     if (iv) {
         pgcry_cipher_setiv(key->cypher_handle, iv, iv_size);
     }
 
-    if (pgcry_cipher_encrypt(key->cypher_handle, output, output_size, input, input_size)) return STATUS_INTERNAL_ERROR;
+/*
+    char* fname[80];
+    sprintf(fname,"%p.encode.dump",key);
+    FILE* fp;
+    fp = fopen(fname,"wb");
+    fwrite(input, input_size, 1, fp);
+    fclose(fp);
+*/
+
+    if (flags && input_size % 16)
+    {
+        //pad input to block size
+//        FIXME("BlockSize: %d\n", block_size);
+        padded_input = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
+        memset(padded_input,0,block_size*blocks);
+        memcpy(padded_input,input,input_size);
+        if (( err = pgcry_cipher_encrypt(key->cypher_handle, output, output_size, padded_input, block_size*blocks))>0)
+        {
+            FIXME("Failed %d  %s/%s\n", err, pgcry_strsource (err),
+                   pgcry_strerror (err));
+          return STATUS_INTERNAL_ERROR;
+        }
+        HeapFree( GetProcessHeap(), 0, padded_input );
+    }
+    else
+    {
+
+        if (( err = pgcry_cipher_encrypt(key->cypher_handle, output, output_size, input, input_size))>0)
+        {
+            FIXME("Failed %d  %s/%s\n", err, pgcry_strsource (err),
+                   pgcry_strerror (err));
+          return STATUS_INTERNAL_ERROR;
+        }
+    }
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS key_decrypt( struct key *key, UCHAR *input, ULONG input_size, UCHAR *iv, ULONG iv_size, UCHAR *output, ULONG output_size )
+static NTSTATUS key_decrypt( struct key *key, UCHAR *input, ULONG input_size, UCHAR *iv, ULONG iv_size, UCHAR *output, ULONG output_size, ULONG flags, ULONG* result )
 {
+    gcry_error_t err;
+    UCHAR* padded_input;
+    UCHAR* padded_output;
+    ULONG block_size = 16;
+    ULONG blocks = input_size / block_size;// + 1;
     if (iv) {
         pgcry_cipher_setiv(key->cypher_handle, iv, iv_size);
     }
 
-    if (pgcry_cipher_decrypt(key->cypher_handle, output, output_size, input, input_size)) return STATUS_INTERNAL_ERROR;
+    if (flags && input_size % 16)
+    {
+        //pad input to block size
+//        FIXME("BlockSize: %d\n", block_size);
+        padded_input = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
+        memset(padded_input,0,block_size*blocks);
+        memcpy(padded_input,input,input_size);
+
+        // create big enought output
+        padded_output = HeapAlloc( GetProcessHeap(), 0, block_size*blocks);
+        memset(padded_output,0,block_size*blocks);
+//        memset(output,0,output_size);
+
+        if (( err = pgcry_cipher_decrypt(key->cypher_handle, padded_output, block_size*blocks, padded_input, block_size*blocks))>0)
+        {
+            FIXME("Failed %d  %s/%s\n", err, pgcry_strsource (err),
+                   pgcry_strerror (err));
+          return STATUS_INTERNAL_ERROR;
+        }
+
+        //truncate
+        output_size = block_size*blocks;
+//        if (output_size > 16)
+//          output_size-=16; // one block smaller
+
+        while (padded_output[output_size-1]==0)
+        {
+            output_size--;
+        }
+
+        *result = output_size;
+
+//        if (output_size<0) ERR("ACHTUNG!!!!\n");
+
+        memcpy(output, padded_output, output_size);
+
+/*
+        char* fname[80];
+        sprintf(fname,"%p.decode.dump",key);
+        FILE* fp;
+        fp = fopen(fname,"wb");
+        fwrite(padded_output, output_size, 1, fp);
+        fclose(fp);
+*/
+        HeapFree( GetProcessHeap(), 0, padded_input );
+        HeapFree( GetProcessHeap(), 0, padded_output );
+    }
+    else
+    {
+        if ((err = pgcry_cipher_decrypt(key->cypher_handle, output, output_size, input, input_size))>0)
+        {
+            FIXME("Failed %d  %s/%s\n", err, pgcry_strsource (err),
+                       pgcry_strerror (err));
+            return STATUS_INTERNAL_ERROR;
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -1083,11 +1178,6 @@ NTSTATUS WINAPI BCryptCreateHash( BCRYPT_ALG_HANDLE algorithm, BCRYPT_HASH_HANDL
 
     TRACE( "%p, %p, %p, %u, %p, %u, %08x - stub\n", algorithm, handle, object, objectlen,
            secret, secretlen, flags );
-    int i;
-    for (i = 0; i < secretlen; i++) {
-        TRACE("%x", secret[i]);
-    }
-    TRACE("\n");
 
     if (flags)
     {
@@ -1152,13 +1242,6 @@ NTSTATUS WINAPI BCryptHashData( BCRYPT_HASH_HANDLE handle, UCHAR *input, ULONG s
 
     if (!hash || hash->hdr.magic != MAGIC_HASH) return STATUS_INVALID_HANDLE;
     if (!input) return STATUS_SUCCESS;
-
-//    int i;
-//    for (i = 0; i < size; i++) {
-//        TRACE("%x", input[i]);
-//    }
-//    TRACE("\n");
-
 
     if (hash->hmac)
     {
@@ -1340,7 +1423,7 @@ NTSTATUS WINAPI BCryptEncrypt(BCRYPT_KEY_HANDLE handle, UCHAR *pbInput, ULONG cb
 
     *pcbResult = cbOutput;
 
-    return key_encrypt(key, pbInput, cbInput, pbIV, cbIV, pbOutput, cbOutput );
+    return key_encrypt(key, pbInput, cbInput, pbIV, cbIV, pbOutput, cbOutput, flags );
 }
 
 NTSTATUS WINAPI BCryptDecrypt(BCRYPT_KEY_HANDLE handle, UCHAR *pbInput, ULONG cbInput, void *pPaddingInfo, UCHAR *pbIV, ULONG cbIV, UCHAR *pbOutput, ULONG cbOutput, ULONG *pcbResult, ULONG flags)
@@ -1368,7 +1451,7 @@ NTSTATUS WINAPI BCryptDecrypt(BCRYPT_KEY_HANDLE handle, UCHAR *pbInput, ULONG cb
 
     *pcbResult = cbOutput;
 
-    return key_decrypt(key, pbInput, cbInput, pbIV, cbIV, pbOutput, cbOutput );
+    return key_decrypt(key, pbInput, cbInput, pbIV, cbIV, pbOutput, cbOutput, flags, pcbResult );
 }
 
 BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
