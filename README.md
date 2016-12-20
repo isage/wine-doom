@@ -18,9 +18,11 @@ Feel free to modify / send patches to wine / etc.
 
 1. Grab a copy of wine or wine-patched sources
 2. Apply configure.patch
-3. copy dlls and include folders from this repo
-4. install libgcrypt development files (-dev/-devel/etc.)
-5. build
+3. Run autoconf && autoheader
+4. copy dlls and include folders from this repo
+5. install libgcrypt development files (-dev/-devel/etc.)
+6. configure
+7. build
 
 ### You can run whole new wine or rename resulting lib and use wine dll redirection https://github.com/wine-compholio/wine-staging/wiki/DLL-Redirects
 
