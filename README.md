@@ -8,12 +8,12 @@ http://steamcommunity.com/app/379720/discussions/0/152391995402132325/
 
 ### Note
 
-## You need to block doom servers or the game will hand due to bug in winhttp (saves and profiles should still work)
+## You need to block doom servers or the game will hang due to bug in winhttp (saves and profiles should still work)
 ```
 127.0.0.1 dfw-gobbler.doom.amok.systems
 127.0.0.1 services.bethesda.net
 ```
-## or you can try to use native winhttp
+or you can try to use native winhttp from winxp64
 
 Decrypt/Encrypt uses standart PKCS #7 padding (when flag is set).
 I'm not sure if that's correct, but it works with DooM.
