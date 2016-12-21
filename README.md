@@ -1,3 +1,7 @@
+# DEPRECATED
+## Please, use wine-staging, they have all needed patches https://github.com/wine-compholio/wine-staging/tree/master/patches/bcrypt-Improvements
+
+
 # wine-doom
 ## Patched WINE BCrypt dll to run DOOM (2016)
 
